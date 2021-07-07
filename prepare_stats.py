@@ -7,7 +7,7 @@ import json
 
 DATA_ROOT = '/Users/martinsf/ai/deep_learning_projects/data'
 URL_WORDNET = 'http://image-net.org/archive/words.txt'
-IMAGENET_API_WNID_TO_URLS = lambda wnid: f'http://www.image-net.org/api/text/imagenet.synset.geturls?wnid={wnid}'
+IMAGENET_API_WNID_TO_URLS = lambda wnid: f'http://www.image-net.org/api/imagenet.synset.geturls?wnid={wnid}'
 
 current_folder = os.path.dirname(os.path.realpath(__file__))
 

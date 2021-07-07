@@ -7,9 +7,10 @@ import json
 import time
 import logging
 import csv
-
+import boto3
+from botocore.exceptions import ClientError
+from tqdm import tqdm
 from multiprocessing import Pool, Process, Value, Lock
-
 from requests.exceptions import ConnectionError, ReadTimeout, TooManyRedirects, MissingSchema, InvalidURL
 
 parser = argparse.ArgumentParser(description='ImageNet image scraper')
@@ -20,9 +21,9 @@ parser.add_argument('-data_root', default='' , type=str)
 parser.add_argument('-use_class_list', default=False,type=lambda x: (str(x).lower() == 'true'))
 parser.add_argument('-class_list', default=[], nargs='*')
 parser.add_argument('-debug', default=False,type=lambda x: (str(x).lower() == 'true'))
-
 parser.add_argument('-multiprocessing_workers', default = 8, type=int)
-
+parser.add_argument('-s3_bucket',default=None,type=str)
+parser.add_argument('-s3_dir_path',default=None,type=str)
 args, args_other = parser.parse_known_args()
 
 if args.debug:
@@ -37,7 +38,7 @@ if not os.path.isdir(args.data_root):
     exit()
 
 
-IMAGENET_API_WNID_TO_URLS = lambda wnid: f'http://www.image-net.org/api/text/imagenet.synset.geturls?wnid={wnid}'
+IMAGENET_API_WNID_TO_URLS = lambda wnid: f'http://www.image-net.org/api/imagenet.synset.geturls?wnid={wnid}'
 
 current_folder = os.path.dirname(os.path.realpath(__file__))
 
@@ -337,3 +338,40 @@ for class_wnid in classes_to_scrape:
     print(f"Multiprocessing workers: {args.multiprocessing_workers}")
     with Pool(processes=args.multiprocessing_workers) as p:
         p.map(get_image,urls)
+
+
+def upload_file(input):
+    """Upload a file to an S3 bucket
+
+    :param file_name: File to upload
+    :param bucket: Bucket to upload to
+    :param object_name: S3 object name. If not specified then file_name is used
+    :return: True if file was uploaded, else False
+    """
+    file_name, bucket, object_name = input
+    # If S3 object_name was not specified, use file_name
+    if object_name is None:
+        object_name = file_name
+
+    # Upload the file
+    s3_client = boto3.client('s3')
+    try:
+        response = s3_client.upload_file(file_name, bucket, object_name)
+    except ClientError as e:
+        logging.error(e)
+        return False
+    return True
+
+if args.s3_bucket and args.s3_dir_path:
+    uploads = list()
+    for root, dirs, files in os.walk(os.path.join(args.data_root,"imagenet_images"), topdown=False):
+        for file_name in files:
+            if file_name.lower().endswith('.jpg'):
+                file_path = os.path.join(root, file_name) 
+                s3_path = os.path.join(args.s3_dir_path,file_name)
+                uploads.append((file_path,args.s3_bucket,s3_path))
+
+    pool = Pool(processes=4)
+    result_list_tqdm = []
+    for result in tqdm(pool.imap(func=upload_file, iterable=uploads), total=len(uploads)):
+        result_list_tqdm.append(result)
